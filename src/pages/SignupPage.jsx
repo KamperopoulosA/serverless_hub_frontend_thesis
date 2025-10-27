@@ -32,7 +32,7 @@ const SignupPage = () => {
         setLoading(true);
         setError(null);
         try {
-            await api.post('/auth/signup', data);
+            await api.post('/auth/register', data);
             navigate('/login');
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to sign up');

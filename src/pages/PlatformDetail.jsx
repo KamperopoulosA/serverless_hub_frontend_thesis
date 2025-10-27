@@ -5,10 +5,12 @@ import api from '../api/axios';
 import Button from '../components/UI/Button';
 import Card from '../components/UI/Card';
 import LoadingSpinner from '../components/UI/LoadingSpinner';
+import useAuth from '../hooks/useAuth'; // ✅ import for role check
 
 const PlatformDetail = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { isAdmin } = useAuth(); // ✅ check user role
     const [platform, setPlatform] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -84,18 +86,22 @@ const PlatformDetail = () => {
                         </div>
                     </div>
                 </div>
-                <div className="flex space-x-3">
-                    <Link to={`/platforms/${id}/edit`}>
-                        <Button variant="outline">
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
+
+                {/* ✅ Only admins see Edit/Delete */}
+                {isAdmin && (
+                    <div className="flex space-x-3">
+                        <Link to={`/platforms/${id}/edit`}>
+                            <Button variant="outline">
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit
+                            </Button>
+                        </Link>
+                        <Button variant="danger" onClick={handleDelete}>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
                         </Button>
-                    </Link>
-                    <Button variant="danger" onClick={handleDelete}>
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                    </Button>
-                </div>
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -142,16 +148,21 @@ const PlatformDetail = () => {
                     <Card className="p-6">
                         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
                         <div className="space-y-3">
+                            {/* ✅ Everyone can deploy */}
                             <Link to={`/deploy?platformId=${id}`} className="block">
                                 <Button className="w-full">
                                     Deploy Function
                                 </Button>
                             </Link>
-                            <Link to={`/platforms/${id}/edit`} className="block">
-                                <Button variant="outline" className="w-full">
-                                    Edit Platform
-                                </Button>
-                            </Link>
+
+                            {/* ✅ Only admin can edit */}
+                            {isAdmin && (
+                                <Link to={`/platforms/${id}/edit`} className="block">
+                                    <Button variant="outline" className="w-full">
+                                        Edit Platform
+                                    </Button>
+                                </Link>
+                            )}
                         </div>
                     </Card>
 

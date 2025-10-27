@@ -8,6 +8,7 @@ import api from '../api/axios';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
 import Card from '../components/UI/Card';
+import useAuth from '../hooks/useAuth'; // ✅ import role hook
 
 const schema = yup.object({
   name: yup.string().required('Platform name is required'),
@@ -30,6 +31,7 @@ const PlatformForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { isAdmin } = useAuth(); // ✅ role check
 
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -41,7 +43,11 @@ const PlatformForm = () => {
       name: '',
       category: '',
       description: '',
-      featuresJson: JSON.stringify({ runtime: '', region: '', scaling: '', maxTimeout: '', memory: '' }, null, 2),
+      featuresJson: JSON.stringify(
+        { runtime: '', region: '', scaling: '', maxTimeout: '', memory: '' },
+        null,
+        2
+      ),
     }
   });
 
@@ -51,6 +57,12 @@ const PlatformForm = () => {
   const watchedFeaturesJson = watch('featuresJson');
 
   useEffect(() => {
+    // ✅ Redirect non-admins away
+    if (!isAdmin) {
+      navigate('/');
+      return;
+    }
+
     if (!isEdit) {
       setInitialLoading(false);
       return;
@@ -80,9 +92,15 @@ const PlatformForm = () => {
     fetchPlatform();
 
     return () => { isMounted = false; };
-  }, [id, isEdit, reset]);
+  }, [id, isEdit, reset, isAdmin, navigate]);
 
   const onSubmit = async () => {
+    if (!isAdmin) {
+      alert('You are not authorized to perform this action.');
+      navigate('/');
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
