@@ -9,12 +9,31 @@ const PlatformRanking = () => {
   const [loading, setLoading] = useState(false);
 
   const [criteria, setCriteria] = useState([
-    { name: "memory", label: "Memory (MB)", weight: 0.25, type: "numeric", direction: "positive", minValue: 128, maxValue: 4096, userValue: "" },
-    { name: "maxTimeout", label: "Max Timeout (s)", weight: 0.25, type: "numeric", direction: "negative", minValue: 10, maxValue: 1000, userValue: "" },
-    { name: "runtime", label: "Runtime", weight: 0.25, type: "categorical", direction: "positive", categoricalValues: ["nodejs18", "python3.11", "go1.20"], userValue: "" },
-    { name: "region", label: "Region", weight: 0.25, type: "categorical", direction: "positive", categoricalValues: ["us-central1", "europe-west1", "asia-east1"], userValue: "" }
+    { name: "memory", label: "Memory (MB)", weight: 0.25, type: "numeric", direction: "positive" },
+    { name: "maxTimeout", label: "Max Timeout (s)", weight: 0.25, type: "numeric", direction: "negative" },
+
+    {
+      name: "runtime",
+      label: "Runtime",
+      weight: 0.25,
+      type: "categorical_multiple",
+      direction: "positive",
+      options: ["nodejs18", "python3.11", "go1.20"],
+      selectedValues: []
+    },
+
+    {
+      name: "languages",
+      label: "Languages",
+      weight: 0.25,
+      type: "categorical_multiple",
+      direction: "positive",
+      options: ["nodejs", "python", "java", "go"],
+      selectedValues: []
+    }
   ]);
 
+  // Normalize weights
   const normalizeWeights = (updated) => {
     const total = updated.reduce((sum, c) => sum + c.weight, 0);
     return updated.map(c => ({ ...c, weight: total > 0 ? c.weight / total : 0 }));
@@ -26,18 +45,32 @@ const PlatformRanking = () => {
     setCriteria(normalizeWeights(updated));
   };
 
-  const handleUserValueChange = (index, value) => {
+  // MULTI SELECT handler
+  const handleMultiSelectChange = (index, e) => {
+    const values = Array.from(e.target.selectedOptions, option => option.value);
+
     const updated = [...criteria];
-    updated[index].userValue = value;
+    updated[index].selectedValues = values;
+
     setCriteria(updated);
   };
 
   const fetchRankings = async () => {
     setLoading(true);
+
     try {
-      const response = await api.post('/platforms/rank', { criteria });
+      const payload = criteria.map(c => ({
+        name: c.name,
+        weight: c.weight,
+        type: c.type,
+        direction: c.direction,
+        categoricalValues: c.selectedValues || []
+      }));
+
+      const response = await api.post('/platforms/rank', { criteria: payload });
 
       let flatRankings = [];
+
       if (Array.isArray(response.data)) {
         response.data.forEach(group => {
           if (group.rankedPlatforms) {
@@ -50,6 +83,7 @@ const PlatformRanking = () => {
 
       flatRankings.sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
       setRankings(flatRankings);
+
     } catch (error) {
       console.error('Failed to fetch rankings:', error);
       setRankings([]);
@@ -73,6 +107,7 @@ const PlatformRanking = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center">
@@ -80,47 +115,52 @@ const PlatformRanking = () => {
           Platform Rankings
         </h1>
         <p className="text-gray-600 mt-2">
-          Enter your preferred values to calculate platform scores
+          Select capabilities and adjust weights to calculate platform scores
         </p>
       </div>
 
-      {/* Criteria Configuration */}
+      {/* Criteria */}
       <Card className="p-6 mb-8">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Ranking Criteria</h2>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-4">
+
           {criteria.map((criterion, index) => (
             <div key={criterion.name}>
+
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {criterion.label}
               </label>
+
+              {/* NUMERIC → no input */}
               {criterion.type === "numeric" ? (
-                <input
-                  type="number"
-                  placeholder={`Enter ${criterion.label}`}
-                  value={criterion.userValue}
-                  min={criterion.minValue}
-                  max={criterion.maxValue}
-                  onChange={(e) => handleUserValueChange(index, e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg mb-2"
-                />
+                <div className="text-xs text-gray-500 mb-2">
+                  Auto-calculated (min-max normalization)
+                </div>
+
               ) : (
-                <select
-                  value={criterion.userValue}
-                  onChange={(e) => handleUserValueChange(index, e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-lg mb-2"
-                >
-                  <option value="">Select {criterion.label}</option>
-                  {criterion.categoricalValues.map(val => (
-                    <option key={val} value={val}>{val}</option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    multiple
+                    onChange={(e) => handleMultiSelectChange(index, e)}
+                    className="w-full p-2 border border-gray-300 rounded-lg mb-2 h-28"
+                  >
+                    {criterion.options.map(val => (
+                      <option key={val} value={val}>{val}</option>
+                    ))}
+                  </select>
+
+                  <p className="text-xs text-gray-400">
+                    Ctrl/Cmd + click for multiple selection
+                  </p>
+                </>
               )}
 
-              {/* 🔸 COMMENTED OUT — Weight label and slider */}
-              {/*
+              {/* Weight */}
               <label className="block text-sm text-gray-600 mb-1">
                 Weight ({Math.round(criterion.weight * 100)}%)
               </label>
+
               <input
                 type="range"
                 min="0"
@@ -130,9 +170,10 @@ const PlatformRanking = () => {
                 onChange={(e) => handleWeightChange(index, e.target.value)}
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
-              */}
+
             </div>
           ))}
+
         </div>
 
         <div className="flex justify-end">
@@ -143,59 +184,46 @@ const PlatformRanking = () => {
         </div>
       </Card>
 
-      {/* Rankings Display */}
+      {/* Results */}
       {loading ? (
-        <div className="flex justify-center items-center py-12">
+        <div className="flex justify-center py-12">
           <div className="w-16 h-16 border-4 border-blue-500 border-dashed rounded-full animate-spin"></div>
         </div>
       ) : rankings.length > 0 ? (
         <Card className="p-6">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">All Platforms Ranked</h2>
+
+          <h2 className="text-2xl font-semibold text-gray-900 mb-6">
+            All Platforms Ranked
+          </h2>
+
           <div className="space-y-4">
             {rankings.map((platform, index) => (
               <div
                 key={platform.id}
-                className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                className="flex justify-between p-4 bg-gray-50 rounded-lg"
               >
-                <div className="flex items-center space-x-4 mb-2 md:mb-0">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${getRankColor(index + 1)}`}
-                  >
-                    {index + 1}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{platform.name}</h3>
-                    <p className="text-sm text-gray-600">{platform.description}</p>
-                    <div className="mt-1 text-sm text-gray-700 space-y-0.5">
-                      {Object.entries(platform.features || {}).map(([key, value]) => (
-                        <div key={key}>
-                          <span className="font-medium">{key}:</span> {value}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                <div>
+                  <h3 className="font-semibold">{platform.name}</h3>
+                  <p className="text-sm text-gray-600">{platform.description}</p>
                 </div>
+
                 <div className="text-right">
-                  <div className="text-lg font-bold text-gray-900">
-                    {platform.totalScore ? platform.totalScore.toFixed(2) : 'N/A'}
+                  <div className="text-lg font-bold">
+                    {platform.totalScore?.toFixed(2)}
                   </div>
                   <div className="text-sm text-gray-500">Score</div>
                 </div>
               </div>
             ))}
           </div>
+
         </Card>
       ) : (
-        <div className="text-center py-12">
-          <div className="bg-gray-50 rounded-lg p-8">
-            <BarChart3 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No ranking data</h3>
-            <p className="text-gray-600 mb-4">
-              Enter values and click "Update Rankings" to see results
-            </p>
-          </div>
+        <div className="text-center py-12 text-gray-500">
+          No ranking data
         </div>
       )}
+
     </div>
   );
 };

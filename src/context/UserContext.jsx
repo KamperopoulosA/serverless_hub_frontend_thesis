@@ -27,12 +27,20 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   const login = (data) => {
-    // Store entire response as user
-    setUser(data);
-    localStorage.setItem("user", JSON.stringify(data));
+  setUser(data);
+  localStorage.setItem("user", JSON.stringify(data));
+
+  if (data.token) {
     localStorage.setItem("token", data.token);
-    localStorage.setItem("role", data.role || "USER");
-  };
+  }
+
+  const role = data.ourUsers?.role
+    ? data.ourUsers.role.toUpperCase()
+    : "USER";
+
+  localStorage.setItem("role", role);
+};
+
 
   const logout = () => {
     setUser(null);

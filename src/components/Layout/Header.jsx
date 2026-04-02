@@ -1,14 +1,15 @@
-// Temporary comment
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Server, Settings, Search, BarChart3, LogIn, UserPlus, LogOut } from 'lucide-react';
 import { useUser } from "../../context/UserContext";
 import Button from '../UI/Button';
+import useAuth from "../../hooks/useAuth";   // ✅ ADD THIS
 
 const Header = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const { isAuthenticated, user, logout } = useUser();
+    const { isAdmin } = useAuth();  // ✅ GET ADMIN FLAG
 
     const isActive = (path) => location.pathname === path;
 
@@ -30,9 +31,9 @@ const Header = () => {
                         {isAuthenticated ? (
                             <>
                                 <Link
-                                    to="/"
+                                    to="/platforms"
                                     className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                                        isActive('/') 
+                                        isActive('/platforms') 
                                             ? 'text-blue-600 bg-blue-50' 
                                             : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
                                     }`}
@@ -40,6 +41,7 @@ const Header = () => {
                                     <Server className="h-4 w-4" />
                                     <span>Platforms</span>
                                 </Link>
+
                                 <Link
                                     to="/search"
                                     className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -51,6 +53,7 @@ const Header = () => {
                                     <Search className="h-4 w-4" />
                                     <span>Search</span>
                                 </Link>
+
                                 <Link
                                     to="/ranking"
                                     className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -62,6 +65,7 @@ const Header = () => {
                                     <BarChart3 className="h-4 w-4" />
                                     <span>Ranking</span>
                                 </Link>
+
                                 <Link
                                     to="/deploy"
                                     className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -73,7 +77,22 @@ const Header = () => {
                                     <Settings className="h-4 w-4" />
                                     <span>Deploy</span>
                                 </Link>
-                                <span className="text-sm text-gray-700">Welcome, {user.username}</span>
+                                <Link to="/profile">My profile</Link>
+                                {/* ADMIN ONLY SECTION */}
+                                {isAdmin && (
+                                    <Link
+                                        to="/admin/users"
+                                        className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium text-yellow-700 bg-yellow-100 hover:bg-yellow-200 transition-colors`}
+                                    >
+                                        <Settings className="h-4 w-4" />
+                                        <span>Admin Dashboard</span>
+                                    </Link>
+                                )}
+
+                                <span className="text-sm text-gray-700">
+                                    Welcome, {user?.ourUsers?.name || user?.ourUsers?.email}
+                                </span>
+
                                 <Button onClick={handleLogout} variant="outline" size="sm">
                                     <LogOut className="h-4 w-4 mr-2" />
                                     Logout
@@ -87,6 +106,7 @@ const Header = () => {
                                         Login
                                     </Button>
                                 </Link>
+
                                 <Link to="/signup">
                                     <Button size="sm">
                                         <UserPlus className="h-4 w-4 mr-2" />

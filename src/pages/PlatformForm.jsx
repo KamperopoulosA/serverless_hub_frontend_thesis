@@ -8,7 +8,7 @@ import api from '../api/axios';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
 import Card from '../components/UI/Card';
-import useAuth from '../hooks/useAuth'; // ✅ import role hook
+import useAuth from '../hooks/useAuth'; //  import role hook
 
 const schema = yup.object({
   name: yup.string().required('Platform name is required'),

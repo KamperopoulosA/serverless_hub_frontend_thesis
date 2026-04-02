@@ -10,21 +10,29 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { login } = useUser();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+  setError(null);
 
-    try {
-      const res = await api.post('/auth/login', credentials);
-      login(res.data); // save user + token
-      navigate('/');   // redirect to home (PlatformsList)
-    } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
-    } finally {
-      setLoading(false);
+  try {
+    const res = await api.post('/auth/login', credentials);
+
+    //  CHECK IF TOKEN IS RETURNED
+    if (!res.data.token) {
+      setError("Invalid email or password");
+      return;
     }
-  };
+
+    login(res.data); // save user + token
+    navigate('/');   // redirect to home
+  } catch (err) {
+    setError(err.response?.data?.message || "Login failed");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="max-w-md mx-auto mt-12 p-6 border rounded shadow">
