@@ -1,42 +1,92 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
-import { Rocket, AlertCircle } from 'lucide-react';
+import { AlertCircle, Rocket } from 'lucide-react';
 import api from '../api/axios';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
 import Card from '../components/UI/Card';
-import { useNavigate } from 'react-router-dom'; // REDIRECT
 
 const schema = yup.object({
   functionName: yup.string().required('Function name is required'),
   platformId: yup.string().required('Platform is required'),
-  userId: yup.string(),
-  credentialsId: yup.string(),
-  functionPackageBase64: yup.string().required('Function package is required'), // stays required
-  runtime: yup.string(),
-  handler: yup.string(),
-  region: yup.string(),
+  functionPackageBase64: yup.string().required('Function package is required'),
+  runtime: yup.string().nullable(),
+  handler: yup.string().nullable(),
+  region: yup.string().nullable(),
 });
 
-// Helper: File -> Base64 (Data URL)
+const ACTIVE_STATUSES = new Set(['QUEUED', 'RUNNING']);
+
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result); // data:application/zip;base64,XXXX
+    reader.onload = () => resolve(reader.result);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 
+const cleanOptional = (value) => {
+  if (value == null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+};
+
+const getStatusMeta = (statusRaw) => {
+  const status = (statusRaw || '').toUpperCase();
+
+  if (status === 'SUCCESS') {
+    return {
+      panelClass: 'bg-emerald-50 border border-emerald-200',
+      titleClass: 'text-emerald-800',
+      bodyClass: 'text-emerald-700',
+      title: 'Deployment Successful',
+      message: 'Your function has been deployed successfully.',
+    };
+  }
+
+  if (status === 'FAILED') {
+    return {
+      panelClass: 'bg-red-50 border border-red-200',
+      titleClass: 'text-red-800',
+      bodyClass: 'text-red-700',
+      title: 'Deployment Failed',
+      message: 'The deployment job failed. Check the error details below.',
+    };
+  }
+
+  if (status === 'RUNNING') {
+    return {
+      panelClass: 'bg-blue-50 border border-blue-200',
+      titleClass: 'text-blue-800',
+      bodyClass: 'text-blue-700',
+      title: 'Deployment Running',
+      message: 'The worker has picked up the job and is deploying now.',
+    };
+  }
+
+  return {
+    panelClass: 'bg-amber-50 border border-amber-200',
+    titleClass: 'text-amber-800',
+    bodyClass: 'text-amber-700',
+    title: 'Deployment Queued',
+    message: 'The job was created successfully and is waiting for the worker.',
+  };
+};
+
 const DeployFunctionForm = () => {
-  const navigate = useNavigate(); // REDIRECT
+  const location = useLocation();
+  const queryPlatformId = new URLSearchParams(location.search).get('platformId') || '';
+
   const [platforms, setPlatforms] = useState([]);
-  const [selectedPlatform, setSelectedPlatform] = useState('');
+  const [selectedPlatform, setSelectedPlatform] = useState(queryPlatformId);
   const [deploying, setDeploying] = useState(false);
   const [deploymentResult, setDeploymentResult] = useState(null);
-
-  // UI states for upload + advanced
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -49,69 +99,87 @@ const DeployFunctionForm = () => {
   } = useForm({
     resolver: yupResolver(schema),
     defaultValues: {
+      platformId: queryPlatformId,
       runtime: 'nodejs18.x',
+      handler: 'index.handler',
+      region: 'us-east-1',
     },
   });
 
-  // (optional) watch base64 field to decide UI
   const currentBase64 = watch('functionPackageBase64');
 
   useEffect(() => {
+    const fetchPlatforms = async () => {
+      try {
+        const response = await api.get('/platforms');
+        setPlatforms(response.data.content || response.data || []);
+      } catch (error) {
+        console.error('Failed to fetch platforms:', error);
+      }
+    };
+
     fetchPlatforms();
   }, []);
 
-  const fetchPlatforms = async () => {
-    try {
-      const response = await api.get('/platforms');
-      setPlatforms(response.data.content || response.data);
-    } catch (error) {
-      console.error('Failed to fetch platforms:', error);
-    }
-  };
-
-  // Αν επιλέξει AWS -> αυτόματες τιμές & απόκρυψη πεδίων
   useEffect(() => {
-    const selected = platforms.find((p) => p.id === selectedPlatform);
-    if (selected && selected.name?.toLowerCase().includes('aws')) {
-      setValue('userId', '22222222-2222-2222-2222-222222222222');
-      setValue('credentialsId', 'a531dff9-e36c-413b-a431-f19053e1cb34');
-    } else {
-      setValue('userId', '');
-      setValue('credentialsId', '');
+    if (!queryPlatformId) {
+      return;
     }
-  }, [selectedPlatform, platforms, setValue]);
 
-  const handleZipUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    setSelectedPlatform(queryPlatformId);
+    setValue('platformId', queryPlatformId);
+  }, [queryPlatformId, setValue]);
 
-    // Basic guard (optional)
+  useEffect(() => {
+    const deploymentId = deploymentResult?.deploymentId;
+    const status = (deploymentResult?.status || '').toUpperCase();
+
+    if (!deploymentId || !ACTIVE_STATUSES.has(status)) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const response = await api.get(`/deployments/${deploymentId}`);
+        setDeploymentResult(response.data);
+      } catch (error) {
+        console.error('Failed to refresh deployment status:', error);
+      }
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [deploymentResult?.deploymentId, deploymentResult?.status]);
+
+  const selected = platforms.find((platform) => platform.id === selectedPlatform);
+  const provider = (selected?.provider || '').toUpperCase();
+  const supported = provider === 'AWS' || provider === 'GCP';
+  const statusMeta = deploymentResult ? getStatusMeta(deploymentResult.status) : null;
+
+  const handleZipUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
     if (!file.name.toLowerCase().endsWith('.zip')) {
       setDeploymentResult({
-        success: false,
-        message: '❌ Please upload a .zip file.',
+        status: 'FAILED',
+        errorMessage: 'Please upload a .zip file.',
       });
       return;
     }
 
     try {
-      setDeploymentResult(null);
-
       const base64DataUrl = await fileToBase64(file);
-      const payload = base64DataUrl.includes(',')
-        ? base64DataUrl.split(',')[1]
-        : base64DataUrl;
-
+      const payload = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
       setUploadedFileName(file.name);
       setValue('functionPackageBase64', payload, { shouldValidate: true });
-
-      // κρατάμε το textarea ως advanced option -> δεν το ανοίγουμε αναγκαστικά
-      // setShowAdvanced(false);
-    } catch (err) {
-      console.error('Failed to read zip file:', err);
+      setDeploymentResult(null);
+    } catch (error) {
+      console.error('Failed to read zip file:', error);
       setDeploymentResult({
-        success: false,
-        message: '❌ Failed to read the ZIP file. Please try again.',
+        status: 'FAILED',
+        errorMessage: 'Failed to read the ZIP file. Please try again.',
       });
     }
   };
@@ -122,14 +190,10 @@ const DeployFunctionForm = () => {
   };
 
   const onSubmit = async (data) => {
-    const selected = platforms.find((p) => p.id === selectedPlatform);
-    const name = selected?.name?.toLowerCase() || '';
-
-    // Επιτρέπεται deploy μόνο για AWS ή GCP
-    if (!name.includes('aws') && !name.includes('gcp')) {
+    if (!supported) {
       setDeploymentResult({
-        success: false,
-        message: '❌ Deployment is only supported for AWS and GCP platforms.',
+        status: 'FAILED',
+        errorMessage: 'Deployments are only supported for AWS and GCP platforms.',
       });
       return;
     }
@@ -138,41 +202,28 @@ const DeployFunctionForm = () => {
     setDeploymentResult(null);
 
     try {
-      const response = await api.post('/deployments', data);
-      const status = response.data.deploymentStatus || response.data.status || '';
-      const isSuccess = status.toUpperCase() === 'SUCCESS';
+      const payload = {
+        platformId: data.platformId,
+        functionName: data.functionName.trim(),
+        functionPackageBase64: data.functionPackageBase64,
+        runtime: cleanOptional(data.runtime),
+        handler: cleanOptional(data.handler),
+        region: cleanOptional(data.region),
+      };
 
-      setDeploymentResult({
-        success: isSuccess,
-        message:
-          response.data.message ||
-          (isSuccess
-            ? '✅ Function deployed successfully!'
-            : '❌ Deployment failed. Check logs for details.'),
-        data: response.data,
-      });
+      const response = await api.post('/deployments', payload);
+      setDeploymentResult(response.data);
     } catch (error) {
       console.error('Deployment failed:', error);
       setDeploymentResult({
-        success: false,
-        message:
-          error.response?.data?.message ||
-          '❌ Deployment failed due to an unexpected error.',
+        status: 'FAILED',
+        errorMessage:
+          error.response?.data?.message || 'Deployment failed due to an unexpected error.',
       });
     } finally {
       setDeploying(false);
-       // REDIRECT (success ή fail)
-      setTimeout(() => {
-        navigate("/profile");
-      }, 1500);
     }
   };
-
-  const selected = platforms.find((p) => p.id === selectedPlatform);
-  const platformName = selected?.name?.toLowerCase() || '';
-  const isAWS = platformName.includes('aws');
-  const isGCP = platformName.includes('gcp');
-  const supported = isAWS || isGCP;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
@@ -190,18 +241,21 @@ const DeployFunctionForm = () => {
             placeholder="my-awesome-function"
           />
 
-          {/* Επιλογή πλατφόρμας */}
           <div>
             <label className="block text-sm font-medium mb-1">Platform</label>
             <select
               {...register('platformId')}
-              onChange={(e) => setSelectedPlatform(e.target.value)}
+              value={selectedPlatform}
+              onChange={(event) => {
+                setSelectedPlatform(event.target.value);
+                setValue('platformId', event.target.value, { shouldValidate: true });
+              }}
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select a platform</option>
-              {platforms.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.type})
+              {platforms.map((platform) => (
+                <option key={platform.id} value={platform.id}>
+                  {platform.name} ({platform.provider || 'Unknown'})
                 </option>
               ))}
             </select>
@@ -210,7 +264,6 @@ const DeployFunctionForm = () => {
             )}
           </div>
 
-          {/* Ενημερωτικό μήνυμα για μη υποστηριζόμενη πλατφόρμα */}
           {!supported && selectedPlatform && (
             <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex items-center">
               <AlertCircle className="text-yellow-600 mr-2" size={18} />
@@ -220,26 +273,6 @@ const DeployFunctionForm = () => {
             </div>
           )}
 
-          {/* Απόκρυψη User ID & Credentials ID μόνο για AWS */}
-          {!isAWS && (
-            <>
-              <Input
-                label="User ID"
-                {...register('userId')}
-                error={errors.userId?.message}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              />
-
-              <Input
-                label="Credentials ID"
-                {...register('credentialsId')}
-                error={errors.credentialsId?.message}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-              />
-            </>
-          )}
-
-          {/* ✅ ZIP upload (recommended) */}
           <div>
             <label className="block text-sm font-medium mb-1">
               Function Package (ZIP) <span className="text-gray-500">(recommended)</span>
@@ -254,9 +287,7 @@ const DeployFunctionForm = () => {
 
             <div className="flex items-center justify-between mt-2">
               <div className="text-sm text-gray-600">
-                {uploadedFileName
-                  ? `Selected: ${uploadedFileName}`
-                  : 'No file selected yet.'}
+                {uploadedFileName ? `Selected: ${uploadedFileName}` : 'No file selected yet.'}
               </div>
 
               {(uploadedFileName || currentBase64) && (
@@ -271,17 +302,14 @@ const DeployFunctionForm = () => {
             </div>
 
             {errors.functionPackageBase64 && (
-              <p className="text-red-600 text-sm mt-1">
-                {errors.functionPackageBase64.message}
-              </p>
+              <p className="text-red-600 text-sm mt-1">{errors.functionPackageBase64.message}</p>
             )}
           </div>
 
-          {/* ✅ Advanced option: Base64 textarea (toggle) */}
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => setShowAdvanced((v) => !v)}
+              onClick={() => setShowAdvanced((value) => !value)}
               className="text-sm text-blue-600 hover:text-blue-800 underline"
             >
               {showAdvanced ? 'Hide advanced Base64 input' : 'Show advanced Base64 input'}
@@ -299,7 +327,7 @@ const DeployFunctionForm = () => {
                   placeholder="Paste your base64 zip here"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  If you uploaded a ZIP, this field is filled automatically.
+                  If you upload a ZIP, this field is filled automatically.
                 </p>
               </div>
             )}
@@ -313,7 +341,7 @@ const DeployFunctionForm = () => {
             <Button type="submit" loading={deploying} disabled={!supported}>
               <Rocket className="h-4 w-4 mr-2" />
               {deploying
-                ? 'Deploying...'
+                ? 'Creating Deployment Job...'
                 : supported
                 ? 'Deploy Function'
                 : 'Deployment Not Supported'}
@@ -321,36 +349,21 @@ const DeployFunctionForm = () => {
           </div>
         </form>
 
-        {deploymentResult && (
-          <div
-            className={`mt-6 p-4 rounded-lg ${
-              deploymentResult.success
-                ? 'bg-emerald-50 border border-emerald-200'
-                : 'bg-red-50 border border-red-200'
-            }`}
-          >
-            <div
-              className={`font-medium ${
-                deploymentResult.success ? 'text-emerald-800' : 'text-red-800'
-              }`}
-            >
-              {deploymentResult.success
-                ? '✅ Deployment Successful!'
-                : '❌ Deployment Failed'}
-            </div>
+        {deploymentResult && statusMeta && (
+          <div className={`mt-6 p-4 rounded-lg ${statusMeta.panelClass}`}>
+            <div className={`font-medium ${statusMeta.titleClass}`}>{statusMeta.title}</div>
+            <div className={`mt-1 ${statusMeta.bodyClass}`}>{statusMeta.message}</div>
 
-            <div
-              className={`mt-1 ${
-                deploymentResult.success ? 'text-emerald-700' : 'text-red-700'
-              }`}
-            >
-              {deploymentResult.message}
-            </div>
+            {deploymentResult.deploymentId && (
+              <div className="mt-3 text-sm text-gray-700">
+                <span className="font-medium">Deployment ID:</span> {deploymentResult.deploymentId}
+              </div>
+            )}
 
-            {deploymentResult.success && deploymentResult.data?.endpointUrl && (
-              <div className="mt-2">
+            {deploymentResult.endpointUrl && (
+              <div className="mt-3">
                 <a
-                  href={deploymentResult.data.endpointUrl}
+                  href={deploymentResult.endpointUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-600 hover:text-blue-800 underline"
@@ -358,6 +371,16 @@ const DeployFunctionForm = () => {
                   View deployed function
                 </a>
               </div>
+            )}
+
+            {deploymentResult.errorMessage && (
+              <p className="mt-3 text-sm text-red-700">{deploymentResult.errorMessage}</p>
+            )}
+
+            {deploymentResult.logOutput && (
+              <pre className="mt-3 p-3 bg-slate-900 text-slate-100 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap">
+                {deploymentResult.logOutput}
+              </pre>
             )}
           </div>
         )}

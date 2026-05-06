@@ -1,23 +1,24 @@
-import React, { useState, useEffect } from 'react'; 
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
-import { Save, ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Save } from 'lucide-react';
 import api from '../api/axios';
 import Button from '../components/UI/Button';
 import Input from '../components/UI/Input';
 import Card from '../components/UI/Card';
-import useAuth from '../hooks/useAuth'; //  import role hook
+import useAuth from '../hooks/useAuth';
 
 const schema = yup.object({
   name: yup.string().required('Platform name is required'),
   category: yup.string().required('Platform category is required'),
+  provider: yup.string().required('Platform provider is required'),
   description: yup.string(),
   featuresJson: yup
     .string()
     .required('Features JSON is required')
-    .test('is-json', 'Invalid JSON format', value => {
+    .test('is-json', 'Invalid JSON format', (value) => {
       try {
         JSON.parse(value);
         return true;
@@ -31,33 +32,33 @@ const PlatformForm = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
-  const { isAdmin } = useAuth(); // ✅ role check
+  const { isAdmin } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
 
-  const { handleSubmit, formState: { errors }, reset, watch, setValue } = useForm({
+  const {
+    handleSubmit,
+    register,
+    reset,
+    formState: { errors },
+  } = useForm({
     resolver: yupResolver(schema),
     defaultValues: {
       name: '',
       category: '',
+      provider: 'AWS',
       description: '',
       featuresJson: JSON.stringify(
         { runtime: '', region: '', scaling: '', maxTimeout: '', memory: '' },
         null,
         2
       ),
-    }
+    },
   });
 
-  const watchedName = watch('name');
-  const watchedCategory = watch('category');
-  const watchedDescription = watch('description');
-  const watchedFeaturesJson = watch('featuresJson');
-
   useEffect(() => {
-    // ✅ Redirect non-admins away
     if (!isAdmin) {
       navigate('/');
       return;
@@ -73,30 +74,38 @@ const PlatformForm = () => {
     const fetchPlatform = async () => {
       try {
         const { data } = await api.get(`/platforms/${id}`);
-        if (isMounted) {
-          reset({
-            name: data.name || '',
-            category: data.category || '',
-            description: data.description || '',
-            featuresJson: JSON.stringify(data.featuresJson || {}, null, 2),
-          });
+        if (!isMounted) {
+          return;
         }
+
+        reset({
+          name: data.name || '',
+          category: data.category || '',
+          provider: data.provider || 'AWS',
+          description: data.description || '',
+          featuresJson: JSON.stringify(data.featuresJson || {}, null, 2),
+        });
       } catch (error) {
         console.error('Failed to fetch platform:', error);
-        if (isMounted) setFetchError('Failed to fetch platform details.');
+        if (isMounted) {
+          setFetchError('Failed to fetch platform details.');
+        }
       } finally {
-        if (isMounted) setInitialLoading(false);
+        if (isMounted) {
+          setInitialLoading(false);
+        }
       }
     };
 
     fetchPlatform();
 
-    return () => { isMounted = false; };
-  }, [id, isEdit, reset, isAdmin, navigate]);
+    return () => {
+      isMounted = false;
+    };
+  }, [id, isAdmin, isEdit, navigate, reset]);
 
-  const onSubmit = async () => {
+  const onSubmit = async (data) => {
     if (!isAdmin) {
-      alert('You are not authorized to perform this action.');
       navigate('/');
       return;
     }
@@ -104,10 +113,11 @@ const PlatformForm = () => {
     setLoading(true);
     try {
       const payload = {
-        name: watchedName.trim(),
-        category: watchedCategory.trim(),
-        description: watchedDescription.trim(),
-        featuresJson: JSON.parse(watchedFeaturesJson),
+        name: data.name.trim(),
+        category: data.category.trim(),
+        provider: data.provider,
+        description: data.description?.trim() || '',
+        featuresJson: JSON.parse(data.featuresJson),
       };
 
       if (isEdit) {
@@ -119,7 +129,7 @@ const PlatformForm = () => {
       navigate('/');
     } catch (error) {
       console.error('Failed to save platform:', error);
-      alert('Failed to save platform. Please check console for details.');
+      alert(error.response?.data?.message || 'Failed to save platform.');
     } finally {
       setLoading(false);
     }
@@ -129,7 +139,7 @@ const PlatformForm = () => {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-blue-600" />
         </div>
       </div>
     );
@@ -154,28 +164,38 @@ const PlatformForm = () => {
 
       <Card className="p-8">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Input
               label="Platform Name"
               placeholder="e.g., AWS Lambda"
-              value={watchedName}
-              onChange={e => setValue('name', e.target.value)}
+              {...register('name')}
               error={errors.name?.message}
             />
             <Input
               label="Category"
               placeholder="e.g., FaaS"
-              value={watchedCategory}
-              onChange={e => setValue('category', e.target.value)}
+              {...register('category')}
               error={errors.category?.message}
             />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+              <select
+                {...register('provider')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="AWS">AWS</option>
+                <option value="GCP">GCP</option>
+              </select>
+              {errors.provider && (
+                <p className="mt-1 text-sm text-red-600">{errors.provider.message}</p>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <textarea
-              value={watchedDescription}
-              onChange={e => setValue('description', e.target.value)}
+              {...register('description')}
               rows={4}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               placeholder="Describe this platform and its capabilities..."
@@ -188,11 +208,10 @@ const PlatformForm = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Features JSON</label>
             <textarea
-              value={watchedFeaturesJson}
-              onChange={e => setValue('featuresJson', e.target.value)}
+              {...register('featuresJson')}
               rows={8}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              placeholder='e.g., {"memory": "512MB", "runtime": "nodejs"}'
+              placeholder='e.g., {"memory": "512MB", "runtime": "nodejs18"}'
             />
             {errors.featuresJson && (
               <p className="mt-1 text-sm text-red-600">{errors.featuresJson.message}</p>

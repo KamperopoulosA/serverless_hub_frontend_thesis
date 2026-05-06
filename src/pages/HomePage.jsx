@@ -88,7 +88,7 @@ const HomePage = () => {
                 Quick links
               </p>
               <div className="flex flex-wrap gap-2 text-xs">
-                <Link to="/deployments">
+                <Link to="/profile">
                   <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 cursor-pointer">
                     View my deployments
                   </span>
@@ -98,7 +98,7 @@ const HomePage = () => {
                     Edit profile
                   </span>
                 </Link>
-                <Link to="/admin">
+                <Link to="/admin/users">
                   <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 cursor-pointer">
                     Admin dashboard
                   </span>
@@ -154,7 +154,7 @@ const HomePage = () => {
             </p>
           </div>
           <div className="flex gap-3">
-            <Link to="/register">
+            <Link to="/signup">
               <Button>Sign up</Button>
             </Link>
             <Link to="/login">

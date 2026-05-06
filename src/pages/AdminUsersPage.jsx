@@ -3,19 +3,29 @@ import api from "../api/axios";
 import Button from "../components/UI/Button";
 import Card from "../components/UI/Card";
 
+const endpointRows = [
+  { label: "GET /api/platforms", key: "platforms_get" },
+  { label: "GET /api/platforms/search", key: "platforms_search_get" },
+  { label: "POST /api/deployments", key: "deployments_post" },
+  { label: "POST /api/auth/login", key: "auth_login_post" },
+];
+
 const AdminUsersPage = () => {
   const [users, setUsers] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [metricsError, setMetricsError] = useState(null);
-  const [lastSpanId, setLastSpanId] = useState(null);
+  const [requestMeta, setRequestMeta] = useState({
+    requestId: null,
+    traceId: null,
+    spanId: null,
+  });
   const [copyStatus, setCopyStatus] = useState(null);
 
   const [deployments, setDeployments] = useState([]);
   const [loadingDeployments, setLoadingDeployments] = useState(false);
   const [deploymentsError, setDeploymentsError] = useState(null);
 
-  // 🔹 state για Edit modal
   const [editingUser, setEditingUser] = useState(null);
   const [editForm, setEditForm] = useState({
     email: "",
@@ -30,11 +40,11 @@ const AdminUsersPage = () => {
   const loadUsers = async () => {
     const res = await api.get("/admin/users");
     setUsers(res.data.ourUsersList || []);
-
-    console.log("HEADERS:", res.headers);
-    const spanId = res.headers["x-span-id"] || res.headers["x-request-id"];
-    console.log("SPAN:", spanId);
-    setLastSpanId(spanId || null);
+    setRequestMeta({
+      requestId: res.headers["x-request-id"] || null,
+      traceId: res.headers["x-trace-id"] || null,
+      spanId: res.headers["x-span-id"] || null,
+    });
     setCopyStatus(null);
   };
 
@@ -79,15 +89,15 @@ const AdminUsersPage = () => {
     loadUsers();
   };
 
-  const handleCopySpanId = async () => {
-    if (!lastSpanId) return;
+  const handleCopyValue = async (value, key) => {
+    if (!value) return;
     try {
-      await navigator.clipboard.writeText(lastSpanId);
-      setCopyStatus("copied");
+      await navigator.clipboard.writeText(value);
+      setCopyStatus(`${key}:copied`);
       setTimeout(() => setCopyStatus(null), 2000);
     } catch (e) {
-      console.error("Failed to copy span id", e);
-      setCopyStatus("error");
+      console.error("Failed to copy observability value", e);
+      setCopyStatus(`${key}:error`);
       setTimeout(() => setCopyStatus(null), 2000);
     }
   };
@@ -111,37 +121,57 @@ const AdminUsersPage = () => {
     };
   };
 
-  const endpointRows = [
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    return new Date(value).toLocaleString();
+  };
+
+  const apiMetrics = metrics?.api ?? {};
+  const deploymentMetrics = metrics?.deployments ?? {};
+  const workerMetrics = metrics?.worker ?? {};
+  const healthMetrics = metrics?.health ?? {};
+
+  const requestMetaRows = [
+    { label: "Request ID", key: "requestId", value: requestMeta.requestId },
+    { label: "Trace ID", key: "traceId", value: requestMeta.traceId },
+    { label: "Span ID", key: "spanId", value: requestMeta.spanId },
+  ];
+
+  const deploymentStatusCards = [
     {
-      label: "GET /api/admin/users",
-      key: "admin_users_get",
-      spanId: lastSpanId,
-      canCopy: true,
+      label: "Queued jobs",
+      value: deploymentMetrics.queued ?? 0,
+      tone: "bg-yellow-50 text-yellow-700 border-yellow-200",
     },
     {
-      label: "GET /api/platforms",
-      key: "platforms_get",
-      spanId: lastSpanId,
-      canCopy: true,
+      label: "Running jobs",
+      value: deploymentMetrics.running ?? 0,
+      tone: "bg-blue-50 text-blue-700 border-blue-200",
     },
     {
-      label: "GET /api/platforms/search",
-      key: "platforms_search_get",
-      spanId: null,
+      label: "Successful jobs",
+      value: deploymentMetrics.success ?? 0,
+      tone: "bg-green-50 text-green-700 border-green-200",
     },
     {
-      label: "POST /api/deployments",
-      key: "deployments_post",
-      spanId: null,
-    },
-    {
-      label: "POST /api/auth/login",
-      key: "auth_login_post",
-      spanId: null,
+      label: "Failed jobs",
+      value: deploymentMetrics.failed ?? 0,
+      tone: "bg-red-50 text-red-700 border-red-200",
     },
   ];
 
-  // 🔹 Όταν πατάς Edit σε έναν χρήστη
+  const workerFreshnessLabel = workerMetrics.fresh
+    ? "Fresh"
+    : workerMetrics.stale
+    ? "Stale"
+    : "Unknown";
+
+  const workerFreshnessTone = workerMetrics.fresh
+    ? "bg-green-50 text-green-700 border-green-200"
+    : workerMetrics.stale
+    ? "bg-red-50 text-red-700 border-red-200"
+    : "bg-gray-50 text-gray-700 border-gray-200";
+
   const handleOpenEdit = (user) => {
     setEditingUser(user);
     setEditForm({
@@ -171,7 +201,7 @@ const AdminUsersPage = () => {
     setEditForm((prev) => ({ ...prev, [name]: value }));
   };
 
-    const handleSaveEdit = async (e) => {
+  const handleSaveEdit = async (e) => {
     e.preventDefault();
     if (!editingUser) return;
 
@@ -184,10 +214,9 @@ const AdminUsersPage = () => {
         name: editForm.name,
         city: editForm.city,
         role: editForm.role,
-        password: editForm.newPassword || null, // αν είναι κενό, backend αγνοεί
+        password: editForm.newPassword || null,
       };
 
-      // backend: PUT /api/auth/admin/update/{userId}
       await api.put(`/auth/admin/update/${editingUser.id}`, payload);
 
       await loadUsers();
@@ -200,19 +229,17 @@ const AdminUsersPage = () => {
     }
   };
 
-
   return (
     <div className="max-w-5xl mx-auto py-8 space-y-6">
-      <h1 className="text-3xl font-bold">Admin – User Management</h1>
+      <h1 className="text-3xl font-bold">Admin - User Management</h1>
 
-      {/* 🔍 Observability / Metrics section */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-2xl font-semibold">API Observability</h2>
             <p className="text-xs text-gray-500">
-              Overview of key endpoints, performance and last span id (where
-              available).
+              Request correlation headers, endpoint timings, deployment queue
+              status and worker health.
             </p>
           </div>
           <Button size="sm" onClick={loadMetrics}>
@@ -221,84 +248,197 @@ const AdminUsersPage = () => {
         </div>
 
         {loadingMetrics && (
-          <p className="text-sm text-gray-500">Loading metrics…</p>
+          <p className="text-sm text-gray-500">Loading metrics...</p>
         )}
         {metricsError && (
           <p className="text-sm text-red-500">{metricsError}</p>
         )}
 
         {!loadingMetrics && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b font-semibold text-left">
-                  <th className="py-2">Endpoint</th>
-                  <th className="py-2">Requests</th>
-                  <th className="py-2">Mean latency</th>
-                  <th className="py-2">Max latency</th>
-                  <th className="py-2">Last span id</th>
-                  <th className="py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {endpointRows.map((row) => {
-                  const m = metrics ? metrics[row.key] : null;
-                  const { count, meanStr, maxStr } = getMetricValues(m);
-
-                  const hasSpan = !!row.spanId;
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                Latest request correlation
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">
+                These headers are captured from the latest `GET /api/admin/users`
+                request made by this page.
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                {requestMetaRows.map((item) => {
+                  const copied = copyStatus === `${item.key}:copied`;
+                  const failed = copyStatus === `${item.key}:error`;
 
                   return (
-                    <tr key={row.label} className="border-b">
-                      <td className="py-2 pr-4 font-mono text-xs">
-                        {row.label}
-                      </td>
-                      <td className="py-2 pr-4">{count}</td>
-                      <td className="py-2 pr-4">{meanStr}</td>
-                      <td className="py-2 pr-4">{maxStr}</td>
-                      <td className="py-2 pr-4">
-                        {hasSpan ? (
-                          <span className="px-2 py-1 rounded-full bg-gray-100 text-[11px] font-mono max-w-[260px] inline-block truncate">
-                            {row.spanId}
+                    <div
+                      key={item.key}
+                      className="rounded-xl border border-gray-200 bg-gray-50 p-4"
+                    >
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        {item.label}
+                      </p>
+                      <p className="mt-2 min-h-[40px] break-all font-mono text-xs text-gray-800">
+                        {item.value || "-"}
+                      </p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <Button
+                          size="xs"
+                          onClick={() => handleCopyValue(item.value, item.key)}
+                          disabled={!item.value}
+                        >
+                          Copy
+                        </Button>
+                        {copied && (
+                          <span className="text-[11px] text-green-600">
+                            Copied!
                           </span>
-                        ) : (
-                          <span className="text-[11px] text-gray-400">—</span>
                         )}
-                      </td>
-                      <td className="py-2">
-                        {row.canCopy && hasSpan && (
-                          <div className="flex items-center gap-2">
-                            <Button size="xs" onClick={handleCopySpanId}>
-                              Copy span id
-                            </Button>
-                            {copyStatus === "copied" && (
-                              <span className="text-[11px] text-green-600">
-                                Copied!
-                              </span>
-                            )}
-                            {copyStatus === "error" && (
-                              <span className="text-[11px] text-red-600">
-                                Copy failed
-                              </span>
-                            )}
-                          </div>
+                        {failed && (
+                          <span className="text-[11px] text-red-600">
+                            Copy failed
+                          </span>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                API endpoint timings
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b font-semibold text-left">
+                      <th className="py-2">Endpoint</th>
+                      <th className="py-2">Requests</th>
+                      <th className="py-2">Mean latency</th>
+                      <th className="py-2">Max latency</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {endpointRows.map((row) => {
+                      const m = apiMetrics[row.key];
+                      const { count, meanStr, maxStr } = getMetricValues(m);
+
+                      return (
+                        <tr key={row.label} className="border-b">
+                          <td className="py-2 pr-4 font-mono text-xs">
+                            {row.label}
+                          </td>
+                          <td className="py-2 pr-4">{count}</td>
+                          <td className="py-2 pr-4">{meanStr}</td>
+                          <td className="py-2 pr-4">{maxStr}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                Deployment engine
+              </h3>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {deploymentStatusCards.map((card) => (
+                  <div
+                    key={card.label}
+                    className={`rounded-xl border p-4 ${card.tone}`}
+                  >
+                    <p className="text-xs font-medium uppercase tracking-wide">
+                      {card.label}
+                    </p>
+                    <p className="mt-2 text-2xl font-bold">{card.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className={`rounded-xl border p-4 ${workerFreshnessTone}`}>
+                <p className="text-xs font-medium uppercase tracking-wide">
+                  Worker freshness
+                </p>
+                <p className="mt-2 text-lg font-semibold">
+                  {workerFreshnessLabel}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Worker status
+                </p>
+                <p className="mt-2 text-lg font-semibold text-gray-900">
+                  {workerMetrics.status || "UNKNOWN"}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Worker ID: {workerMetrics.workerId || "-"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Last heartbeat
+                </p>
+                <p className="mt-2 text-sm font-medium text-gray-900">
+                  {formatDateTime(workerMetrics.lastHeartbeatAt)}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Stale after {workerMetrics.staleAfterSeconds ?? "-"}s
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  API health
+                </p>
+                <p className="mt-2 text-lg font-semibold text-gray-900">
+                  {healthMetrics.apiStatus || "UNKNOWN"}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Worker health: {healthMetrics.workerStatus || "UNKNOWN"}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Worker service
+                </p>
+                <p className="mt-2 break-all text-sm font-medium text-gray-900">
+                  {workerMetrics.serviceName || "-"}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Last deployment: {workerMetrics.lastDeploymentId || "-"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  Last worker error
+                </p>
+                <p className="mt-2 break-words text-sm text-gray-900">
+                  {workerMetrics.lastError || "No recent worker errors"}
+                </p>
+              </div>
+            </div>
 
             {!metrics && !metricsError && !loadingMetrics && (
-              <p className="text-sm text-gray-500 mt-2">
-                No metrics yet. Hit some endpoints and click “Refresh metrics”.
+              <p className="text-sm text-gray-500">
+                No observability data yet. Hit some endpoints and click
+                "Refresh metrics".
               </p>
             )}
           </div>
         )}
       </Card>
 
-      {/* 🚀 Deployment records table */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">Recent Deployments</h2>
@@ -308,7 +448,7 @@ const AdminUsersPage = () => {
         </div>
 
         {loadingDeployments && (
-          <p className="text-sm text-gray-500">Loading deployments…</p>
+          <p className="text-sm text-gray-500">Loading deployments...</p>
         )}
         {deploymentsError && (
           <p className="text-sm text-red-500">{deploymentsError}</p>
@@ -340,26 +480,25 @@ const AdminUsersPage = () => {
                   </tr>
                 )}
 
-                {deployments.filter((d) => d.status !== "FAILED").map((d) => (
+                {deployments.map((d) => (
                   <tr key={d.id} className="border-b">
                     <td className="py-2 pr-4 font-mono text-xs truncate max-w-[140px]">
                       {d.id}
                     </td>
                     <td className="py-2 pr-4 font-mono text-xs truncate max-w-[140px]">
-                      {d.userId}
+                      {d.ownerUserId ?? "-"}
                     </td>
                     <td className="py-2 pr-4">{d.platformName || "-"}</td>
                     <td className="py-2 pr-4">{d.functionName}</td>
                     <td className="py-2 pr-4">
                       <span
-                        className={`px-2 py-1 rounded-full text-[11px] font-semibold
-                          ${
-                            d.status === "SUCCESS"
-                              ? "bg-green-100 text-green-700"
-                              : d.status === "FAILED"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
+                        className={`px-2 py-1 rounded-full text-[11px] font-semibold ${
+                          d.status === "SUCCESS"
+                            ? "bg-green-100 text-green-700"
+                            : d.status === "FAILED"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-yellow-100 text-yellow-700"
+                        }`}
                       >
                         {d.status}
                       </span>
@@ -379,9 +518,7 @@ const AdminUsersPage = () => {
                       )}
                     </td>
                     <td className="py-2 pr-4 text-xs text-gray-600">
-                      {d.createdAt
-                        ? new Date(d.createdAt).toLocaleString()
-                        : "-"}
+                      {d.createdAt ? new Date(d.createdAt).toLocaleString() : "-"}
                     </td>
                   </tr>
                 ))}
@@ -391,7 +528,6 @@ const AdminUsersPage = () => {
         )}
       </Card>
 
-      {/* 👤 Users table */}
       <Card className="p-6">
         <table className="w-full">
           <thead>
@@ -405,42 +541,42 @@ const AdminUsersPage = () => {
           </thead>
 
           <tbody>
-            {users.filter((u) => u.role !== "ADMIN")
-            .map((u) => (
-              <tr key={u.id} className="border-b">
-                <td>{u.id}</td>
-                <td>{u.email}</td>
-                <td>{u.role}</td>
-                <td>{u.active ? "Active" : "Disabled"}</td>
+            {users
+              .filter((u) => u.role !== "ADMIN")
+              .map((u) => (
+                <tr key={u.id} className="border-b">
+                  <td>{u.id}</td>
+                  <td>{u.email}</td>
+                  <td>{u.role}</td>
+                  <td>{u.active ? "Active" : "Disabled"}</td>
 
-                <td className="space-x-2 text-right">
-                  <Button onClick={() => toggleActive(u.id)} size="sm">
-                    {u.active ? "Disable" : "Activate"}
-                  </Button>
+                  <td className="space-x-2 text-right">
+                    <Button onClick={() => toggleActive(u.id)} size="sm">
+                      {u.active ? "Disable" : "Activate"}
+                    </Button>
 
-                  <Button
-                    onClick={() => handleOpenEdit(u)}
-                    size="sm"
-                    className="bg-yellow-500 hover:bg-yellow-600"
-                  >
-                    Edit
-                  </Button>
+                    <Button
+                      onClick={() => handleOpenEdit(u)}
+                      size="sm"
+                      className="bg-yellow-500 hover:bg-yellow-600"
+                    >
+                      Edit
+                    </Button>
 
-                  <Button
-                    onClick={() => deleteUser(u.id)}
-                    size="sm"
-                    className="bg-red-600"
-                  >
-                    Delete
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                    <Button
+                      onClick={() => deleteUser(u.id)}
+                      size="sm"
+                      className="bg-red-600"
+                    >
+                      Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </Card>
 
-      {/* ✏️ Edit user modal */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-lg w-full max-w-md mx-4 p-6">
@@ -503,8 +639,7 @@ const AdminUsersPage = () => {
                   value={editForm.role}
                   onChange={handleEditChange}
                   disabled
-                    className="w-full border rounded-md px-3 py-2 text-sm 
-             bg-gray-100 text-gray-500 cursor-not-allowed"
+                  className="w-full border rounded-md px-3 py-2 text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
                 >
                   <option value="USER">USER</option>
                   <option value="ADMIN">ADMIN</option>

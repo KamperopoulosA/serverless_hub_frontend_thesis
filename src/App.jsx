@@ -46,7 +46,7 @@ function App() {
           <Route path="/deploy" element={<PrivateRoute><DeployFunctionForm /></PrivateRoute>} />
           <Route path="/credentials" element={<PrivateRoute><CredentialsForm /></PrivateRoute>} />
           <Route path="/admin/users" element={isAdmin ? <AdminUsersPage /> : <Navigate to="/" />}/>
-          <Route path="/profile" element={<ProfilePage/>}/>
+          <Route path="/profile" element={<PrivateRoute><ProfilePage /></PrivateRoute>} />
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

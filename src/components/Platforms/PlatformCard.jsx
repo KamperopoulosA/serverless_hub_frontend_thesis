@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Edit, Trash2, ExternalLink } from 'lucide-react';
+import { Edit, ExternalLink, Trash2 } from 'lucide-react';
 import Card from '../UI/Card';
 import Button from '../UI/Button';
 import useAuth from '../../hooks/useAuth';
@@ -22,9 +22,9 @@ const PlatformCard = ({ platform, onDelete }) => {
           <p className="text-gray-600 text-sm mb-2">{platform.description}</p>
           <div className="flex items-center space-x-4 text-sm text-gray-500">
             <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-              {platform.type}
+              {platform.provider || 'Unknown Provider'}
             </span>
-            <span>Version: {platform.version}</span>
+            <span>{platform.category || 'Uncategorized'}</span>
           </div>
         </div>
 
@@ -49,14 +49,6 @@ const PlatformCard = ({ platform, onDelete }) => {
           )}
         </div>
       </div>
-
-      {platform.endpoint && (
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-          <p className="text-sm text-gray-600">
-            <span className="font-medium">Endpoint:</span> {platform.endpoint}
-          </p>
-        </div>
-      )}
     </Card>
   );
 };

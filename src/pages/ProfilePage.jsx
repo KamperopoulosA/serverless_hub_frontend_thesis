@@ -1,17 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
-import api from "../api/axios";
-import Button from "../components/UI/Button";
-import Card from "../components/UI/Card";
+import React, { useEffect, useMemo, useState } from 'react';
+import api from '../api/axios';
+import Button from '../components/UI/Button';
+import Card from '../components/UI/Card';
+
+const ACTIVE_DEPLOYMENT_STATUSES = new Set(['QUEUED', 'RUNNING']);
 
 const ProfilePage = () => {
   const [form, setForm] = useState({
-    email: "",
-    name: "",
-    city: "",
-    role: "",
-    currentPassword: "",
-    newPassword: "",
-    confirmNewPassword: "",
+    email: '',
+    name: '',
+    city: '',
+    role: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmNewPassword: '',
   });
 
   const [loading, setLoading] = useState(true);
@@ -19,54 +21,46 @@ const ProfilePage = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // 🔹 Deployments state
   const [deployments, setDeployments] = useState([]);
   const [loadingDeployments, setLoadingDeployments] = useState(false);
   const [deploymentsError, setDeploymentsError] = useState(null);
-
-  // ✅ Hide FAILED deployments by default (toggle)
   const [showFailedDeployments, setShowFailedDeployments] = useState(false);
 
-  // Φόρτωση προφίλ στην αρχή
   const loadProfile = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // backend: /api/auth/adminuser/get-profile
-      const res = await api.get("/auth/adminuser/get-profile");
-      const u = res.data.ourUsers || {};
+      const response = await api.get('/auth/adminuser/get-profile');
+      const user = response.data.ourUsers || {};
 
-      setForm((prev) => ({
-        ...prev,
-        email: u.email || "",
-        name: u.name || "",
-        city: u.city || "",
-        role: u.role || "",
-        currentPassword: "",
-        newPassword: "",
-        confirmNewPassword: "",
+      setForm((previous) => ({
+        ...previous,
+        email: user.email || '',
+        name: user.name || '',
+        city: user.city || '',
+        role: user.role || '',
+        currentPassword: '',
+        newPassword: '',
+        confirmNewPassword: '',
       }));
-    } catch (e) {
-      console.error("Failed to load profile", e);
-      setError("Failed to load profile data.");
+    } catch (requestError) {
+      console.error('Failed to load profile', requestError);
+      setError('Failed to load profile data.');
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔹 Φόρτωση deployments χρήστη
   const loadDeployments = async () => {
     try {
       setLoadingDeployments(true);
       setDeploymentsError(null);
-
-      // backend: GET /api/user/deployments/my
-      const res = await api.get("/user/deployments/my");
-      setDeployments(res.data || []);
-    } catch (e) {
-      console.error("Failed to load deployments", e);
-      setDeploymentsError("Failed to load deployments");
+      const response = await api.get('/user/deployments/my');
+      setDeployments(response.data || []);
+    } catch (requestError) {
+      console.error('Failed to load deployments', requestError);
+      setDeploymentsError('Failed to load deployments.');
     } finally {
       setLoadingDeployments(false);
     }
@@ -77,24 +71,44 @@ const ProfilePage = () => {
     loadDeployments();
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+  const hasActiveDeployments = useMemo(
+    () =>
+      deployments.some((deployment) =>
+        ACTIVE_DEPLOYMENT_STATUSES.has((deployment.status || '').toUpperCase())
+      ),
+    [deployments]
+  );
+
+  useEffect(() => {
+    if (!hasActiveDeployments) {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      loadDeployments();
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveDeployments]);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setForm((previous) => ({ ...previous, [name]: value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setError(null);
     setSuccess(null);
 
-    // basic front-end validation για password change
     if (form.newPassword) {
       if (!form.currentPassword) {
-        setError("Please enter your current password to change it.");
+        setError('Please enter your current password to change it.');
         return;
       }
+
       if (form.newPassword !== form.confirmNewPassword) {
-        setError("New password and confirmation do not match.");
+        setError('New password and confirmation do not match.');
         return;
       }
     }
@@ -110,65 +124,61 @@ const ProfilePage = () => {
         newPassword: form.newPassword || null,
       };
 
-      // backend: PUT /api/auth/profile
-      const res = await api.put("/auth/profile", payload);
-
-      if (res.data?.statusCode && res.data.statusCode >= 400) {
-        setError(res.data.message || "Failed to update profile.");
+      const response = await api.put('/auth/profile', payload);
+      if (response.data?.statusCode && response.data.statusCode >= 400) {
+        setError(response.data.message || 'Failed to update profile.');
       } else {
-        setSuccess("Profile updated successfully.");
-
-        // Καθάρισμα password fields
-        setForm((prev) => ({
-          ...prev,
-          currentPassword: "",
-          newPassword: "",
-          confirmNewPassword: "",
+        setSuccess('Profile updated successfully.');
+        setForm((previous) => ({
+          ...previous,
+          currentPassword: '',
+          newPassword: '',
+          confirmNewPassword: '',
         }));
       }
-    } catch (e) {
-      console.error("Failed to update profile", e);
-      setError("Unexpected error while updating profile.");
+    } catch (requestError) {
+      console.error('Failed to update profile', requestError);
+      setError('Unexpected error while updating profile.');
     } finally {
       setSaving(false);
     }
   };
 
-  // ✅ Sort deployments by createdAt DESC (most recent first)
   const sortedDeployments = useMemo(() => {
-    const arr = Array.isArray(deployments) ? [...deployments] : [];
-    arr.sort((a, b) => {
-      const da = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const db = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return db - da;
+    const records = Array.isArray(deployments) ? [...deployments] : [];
+    records.sort((left, right) => {
+      const leftTime = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+      const rightTime = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+      return rightTime - leftTime;
     });
-    return arr;
+    return records;
   }, [deployments]);
 
-  // ✅ Most recent deployment (status-only view)
-  const mostRecentDeployment =
-    sortedDeployments.length > 0 ? sortedDeployments[0] : null;
-
-  // ✅ Visible deployments for table (hide FAILED by default)
+  const mostRecentDeployment = sortedDeployments.length > 0 ? sortedDeployments[0] : null;
   const tableDeployments = useMemo(() => {
-    if (showFailedDeployments) return sortedDeployments;
+    if (showFailedDeployments) {
+      return sortedDeployments;
+    }
+
     return sortedDeployments.filter(
-      (d) => (d?.status || "").toUpperCase() !== "FAILED"
+      (deployment) => (deployment?.status || '').toUpperCase() !== 'FAILED'
     );
-  }, [sortedDeployments, showFailedDeployments]);
+  }, [showFailedDeployments, sortedDeployments]);
 
   const renderStatusBadge = (statusRaw) => {
-    const status = (statusRaw || "").toUpperCase();
-    const cls =
-      status === "SUCCESS"
-        ? "bg-green-100 text-green-700"
-        : status === "FAILED"
-        ? "bg-red-100 text-red-700"
-        : "bg-yellow-100 text-yellow-700";
+    const status = (statusRaw || '').toUpperCase();
+    const badgeClass =
+      status === 'SUCCESS'
+        ? 'bg-green-100 text-green-700'
+        : status === 'FAILED'
+        ? 'bg-red-100 text-red-700'
+        : status === 'RUNNING'
+        ? 'bg-blue-100 text-blue-700'
+        : 'bg-yellow-100 text-yellow-700';
 
     return (
-      <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${cls}`}>
-        {status || "UNKNOWN"}
+      <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${badgeClass}`}>
+        {status || 'UNKNOWN'}
       </span>
     );
   };
@@ -176,7 +186,7 @@ const ProfilePage = () => {
   if (loading) {
     return (
       <div className="max-w-xl mx-auto py-8">
-        <p className="text-sm text-gray-500">Loading profile…</p>
+        <p className="text-sm text-gray-500">Loading profile...</p>
       </div>
     );
   }
@@ -184,9 +194,7 @@ const ProfilePage = () => {
   return (
     <div className="max-w-2xl mx-auto py-8 space-y-6">
       <h1 className="text-3xl font-bold mb-2">My Profile</h1>
-      <p className="text-sm text-gray-500 mb-4">
-        View and update your account details.
-      </p>
+      <p className="text-sm text-gray-500 mb-4">View and update your account details.</p>
 
       {error && (
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -200,18 +208,14 @@ const ProfilePage = () => {
         </div>
       )}
 
-      {/* 🧍‍♂️ Profile form */}
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Βασικές πληροφορίες */}
         <Card className="p-6 space-y-4">
-          <h2 className="text-xl font-semibold mb-2">Account info</h2>
+          <h2 className="text-xl font-semibold mb-2">Account Info</h2>
 
           <div className="space-y-1">
-            <label className="block text-sm font-medium text-gray-700">
-              Role
-            </label>
+            <label className="block text-sm font-medium text-gray-700">Role</label>
             <div className="text-sm text-gray-600 px-3 py-2 bg-gray-50 rounded-md border border-gray-200 inline-block">
-              {form.role || "USER"}
+              {form.role || 'USER'}
             </div>
           </div>
 
@@ -232,7 +236,7 @@ const ProfilePage = () => {
 
           <div className="space-y-1">
             <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-              Full name
+              Full Name
             </label>
             <input
               id="name"
@@ -259,9 +263,8 @@ const ProfilePage = () => {
           </div>
         </Card>
 
-        {/* Αλλαγή password */}
         <Card className="p-6 space-y-4">
-          <h2 className="text-xl font-semibold mb-2">Change password</h2>
+          <h2 className="text-xl font-semibold mb-2">Change Password</h2>
           <p className="text-xs text-gray-500 mb-2">
             Leave the fields empty if you do not want to change your password.
           </p>
@@ -313,29 +316,28 @@ const ProfilePage = () => {
 
         <div className="flex justify-end">
           <Button type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save changes"}
+            {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </form>
 
-      {/* ✅ Most Recent Deployment (read-only status view) */}
       <Card id="recent" className="p-6">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold">Most Recent Deployment</h2>
             <p className="text-xs text-gray-500 mt-1">
-              Read-only status view of your latest deployment attempt.
+              {hasActiveDeployments
+                ? 'This view auto-refreshes while deployments are queued or running.'
+                : 'Read-only status view of your latest deployment attempt.'}
             </p>
           </div>
 
           <Button size="sm" onClick={loadDeployments} disabled={loadingDeployments}>
-            {loadingDeployments ? "Refreshing…" : "Refresh"}
+            {loadingDeployments ? 'Refreshing...' : 'Refresh'}
           </Button>
         </div>
 
-        {deploymentsError && (
-          <p className="text-sm text-red-500 mt-3">{deploymentsError}</p>
-        )}
+        {deploymentsError && <p className="text-sm text-red-500 mt-3">{deploymentsError}</p>}
 
         {!deploymentsError && !mostRecentDeployment && (
           <p className="text-sm text-gray-500 mt-3">No deployments yet.</p>
@@ -350,14 +352,17 @@ const ProfilePage = () => {
 
             <div className="flex items-center justify-between">
               <div className="text-gray-600">Platform</div>
-              <div className="font-medium">
-                {mostRecentDeployment.platformName || "-"}
-              </div>
+              <div className="font-medium">{mostRecentDeployment.platformName || '-'}</div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="text-gray-600">Provider</div>
+              <div className="font-medium">{mostRecentDeployment.provider || '-'}</div>
             </div>
 
             <div className="flex items-center justify-between">
               <div className="text-gray-600">Function</div>
-              <div className="font-medium">{mostRecentDeployment.functionName || "-"}</div>
+              <div className="font-medium">{mostRecentDeployment.functionName || '-'}</div>
             </div>
 
             <div className="flex items-center justify-between">
@@ -365,7 +370,7 @@ const ProfilePage = () => {
               <div className="text-gray-700">
                 {mostRecentDeployment.createdAt
                   ? new Date(mostRecentDeployment.createdAt).toLocaleString()
-                  : "-"}
+                  : '-'}
               </div>
             </div>
 
@@ -386,11 +391,14 @@ const ProfilePage = () => {
                 )}
               </div>
             </div>
+
+            {mostRecentDeployment.errorMessage && (
+              <div className="mt-2 text-sm text-red-600">{mostRecentDeployment.errorMessage}</div>
+            )}
           </div>
         )}
       </Card>
 
-      {/* 🚀 Deployments του χρήστη */}
       <Card className="p-6 mt-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">My Deployments</h2>
@@ -400,19 +408,15 @@ const ProfilePage = () => {
               <input
                 type="checkbox"
                 checked={showFailedDeployments}
-                onChange={(e) => setShowFailedDeployments(e.target.checked)}
+                onChange={(event) => setShowFailedDeployments(event.target.checked)}
               />
               Show failed
             </label>
           </div>
         </div>
 
-        {loadingDeployments && (
-          <p className="text-sm text-gray-500">Loading deployments…</p>
-        )}
-        {deploymentsError && (
-          <p className="text-sm text-red-500">{deploymentsError}</p>
-        )}
+        {loadingDeployments && <p className="text-sm text-gray-500">Loading deployments...</p>}
+        {deploymentsError && <p className="text-sm text-red-500">{deploymentsError}</p>}
 
         {!loadingDeployments && !deploymentsError && (
           <div className="overflow-x-auto">
@@ -421,6 +425,7 @@ const ProfilePage = () => {
                 <tr className="border-b font-semibold text-left">
                   <th className="py-2">ID</th>
                   <th className="py-2">Platform</th>
+                  <th className="py-2">Provider</th>
                   <th className="py-2">Function</th>
                   <th className="py-2">Status</th>
                   <th className="py-2">Endpoint</th>
@@ -431,40 +436,41 @@ const ProfilePage = () => {
               <tbody>
                 {tableDeployments.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-4 text-center text-gray-500">
+                    <td colSpan={7} className="py-4 text-center text-gray-500">
                       {deployments.length === 0
-                        ? "No deployments yet."
+                        ? 'No deployments yet.'
                         : showFailedDeployments
-                        ? "No deployments to show."
-                        : "No successful/pending deployments to show (failed are hidden)."}
+                        ? 'No deployments to show.'
+                        : 'No successful or active deployments to show (failed are hidden).'}
                     </td>
                   </tr>
                 )}
 
-                {tableDeployments.map((d) => (
-                  <tr key={d.id} className="border-b">
+                {tableDeployments.map((deployment) => (
+                  <tr key={deployment.id} className="border-b">
                     <td className="py-2 pr-4 font-mono text-xs truncate max-w-[140px]">
-                      {d.id}
+                      {deployment.id}
                     </td>
-                    <td className="py-2 pr-4">{d.platformName || "-"}</td>
-                    <td className="py-2 pr-4">{d.functionName}</td>
-                    <td className="py-2 pr-4">{renderStatusBadge(d.status)}</td>
+                    <td className="py-2 pr-4">{deployment.platformName || '-'}</td>
+                    <td className="py-2 pr-4">{deployment.provider || '-'}</td>
+                    <td className="py-2 pr-4">{deployment.functionName}</td>
+                    <td className="py-2 pr-4">{renderStatusBadge(deployment.status)}</td>
                     <td className="py-2 pr-4">
-                      {d.endpointUrl ? (
+                      {deployment.endpointUrl ? (
                         <a
-                          href={d.endpointUrl}
+                          href={deployment.endpointUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-600 hover:underline text-xs break-all"
                         >
-                          {d.endpointUrl}
+                          {deployment.endpointUrl}
                         </a>
                       ) : (
                         <span className="text-xs text-gray-400">-</span>
                       )}
                     </td>
                     <td className="py-2 pr-4 text-xs text-gray-600">
-                      {d.createdAt ? new Date(d.createdAt).toLocaleString() : "-"}
+                      {deployment.createdAt ? new Date(deployment.createdAt).toLocaleString() : '-'}
                     </td>
                   </tr>
                 ))}
